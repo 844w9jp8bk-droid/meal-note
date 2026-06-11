@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#F4F5F2">
+<title>食事・体重ノート</title>
+<style>
+:root{
+  --paper:#F4F5F2; --card:#FFFFFF; --ink:#20262E; --gunmetal:#46505E;
+  --sub:#7A8088; --line:#E3E6E0; --soft:#EBEDE8; --ai:#3A5A8C; --shu:#C0532F;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{
+  min-height:100vh;
+  background-color:var(--paper);
+  background-image:linear-gradient(rgba(32,38,46,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(32,38,46,.035) 1px,transparent 1px);
+  background-size:24px 24px;
+  color:var(--ink);
+  font-family:-apple-system,"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI",sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:560px;margin:0 auto;padding:24px 16px 40px;}
+h1{font-family:"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif;font-size:20px;font-weight:600;letter-spacing:.04em;}
+.serif{font-family:"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif;}
+.sub{color:var(--sub);}
+.xs{font-size:11px;}
+.sm{font-size:13px;}
+.num{font-variant-numeric:tabular-nums;}
+.bold{font-weight:600;}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:16px;}
+.row{display:flex;align-items:center;gap:8px;}
+.between{justify-content:space-between;}
+.center{text-align:center;}
+.tabs{display:flex;background:var(--soft);border-radius:12px;padding:4px;margin-bottom:20px;}
+.tabs button{flex:1;padding:8px 0;font-size:13px;border:0;border-radius:9px;background:transparent;color:var(--sub);font-family:inherit;}
+.tabs button.on{background:var(--card);color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.06);}
+button{cursor:pointer;font-family:inherit;}
+.btn{background:var(--ink);color:#fff;border:0;border-radius:10px;padding:8px 16px;font-size:14px;font-weight:500;white-space:nowrap;}
+.btn-line{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:6px 12px;font-size:13px;color:var(--ink);}
+.link{background:none;border:0;font-size:11px;color:var(--sub);text-decoration:underline;padding:0;}
+input,textarea{background:#FBFCFA;border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:16px;color:var(--ink);outline:none;font-family:inherit;}
+input:focus,textarea:focus{border-color:var(--ai);}
+textarea{width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;resize:vertical;}
+.pill{border:1px solid var(--line);background:var(--card);color:var(--sub);border-radius:999px;padding:5px 12px;font-size:12px;}
+.pill.on{background:var(--ink);color:#fff;border-color:var(--ink);}
+.chip{border:1px solid var(--ai);background:var(--card);color:var(--ai);border-radius:999px;padding:5px 12px;font-size:12px;}
+.chip.del{border-color:var(--shu);color:var(--shu);}
+.list-item{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-top:1px solid var(--line);}
+.iconbtn{background:none;border:0;font-size:15px;line-height:1;padding:2px 4px;color:var(--sub);}
+.bar{height:8px;border-radius:999px;background:var(--soft);overflow:hidden;}
+.bar>div{height:100%;border-radius:999px;transition:width .3s;}
+.stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px;}
+.stats .card{margin-bottom:0;padding:12px;}
+.wrapchips{display:flex;flex-wrap:wrap;gap:8px;}
+.mt1{margin-top:4px;}.mt2{margin-top:8px;}.mt3{margin-top:12px;}
+.mb1{margin-bottom:4px;}.mb2{margin-bottom:8px;}.mb3{margin-bottom:12px;}
+.hide{display:none;}
+svg text{font-family:inherit;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="row" style="align-items:baseline;gap:8px;margin-bottom:20px;">
+    <span style="width:10px;height:10px;background:var(--shu);border-radius:2px;flex:none;"></span>
+    <div>
+      <h1>食事・体重ノート</h1>
+      <p class="xs sub mt1">毎日の摂取カロリーと体重を記録する</p>
+      <p class="xs mt1 hide" id="saveError" style="color:var(--shu)">保存に失敗しました。プライベートブラウズ等でlocalStorageが使えない可能性があります。</p>
+    </div>
+  </div>
+  <div class="tabs">
+    <button id="tabToday" class="on" onclick="app.setTab('today')">今日の記録</button>
+    <button id="tabHistory" onclick="app.setTab('history')">履歴・グラフ</button>
+  </div>
+  <div id="view"></div>
+</div>
+
+<script>
+"use strict";
+
+// ---- 定数・ユーティリティ ----
+var KEYS = { meals:"mwn-meals", weights:"mwn-weights", settings:"mwn-settings", favorites:"mwn-favorites", apikey:"mwn-apikey" };
+var AI_MODEL = "claude-haiku-4-5-20251001"; // カロリー概算に使うモデル（精度を上げたい場合は claude-sonnet-4-6 などに変更可）
+var WD = ["日","月","火","水","木","金","土"];
+var TYPES = ["朝食","昼食","夕食","間食"];
+
+function load(k, fb){ try{ var v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; }catch(e){ return fb; } }
+function save(k, v){
+  try{ localStorage.setItem(k, JSON.stringify(v)); showSaveError(false); }
+  catch(e){ showSaveError(true); }
+}
+function showSaveError(on){ document.getElementById("saveError").classList.toggle("hide", !on); }
+
+function pad(n){ return String(n).padStart(2,"0"); }
+function toDS(d){ return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
+function today(){ return toDS(new Date()); }
+function shift(ds, n){ var p = ds.split("-").map(Number); return toDS(new Date(p[0], p[1]-1, p[2]+n)); }
+function longL(ds){ var p = ds.split("-").map(Number); return p[0]+"年"+p[1]+"月"+p[2]+"日（"+WD[new Date(p[0],p[1]-1,p[2]).getDay()]+"）"; }
+function midL(ds){ var p = ds.split("-").map(Number); return p[1]+"月"+p[2]+"日（"+WD[new Date(p[0],p[1]-1,p[2]).getDay()]+"）"; }
+function shortL(ds){ var p = ds.split("-"); return Number(p[1])+"/"+Number(p[2]); }
+function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+function uid(){ return Date.now()+"-"+Math.random().toString(36).slice(2,7); }
+function fmt(n){ return Number(n).toLocaleString("ja-JP"); }
+function defType(){
+  var h = new Date().getHours();
+  if(h >= 4 && h < 10) return "朝食";
+  if(h >= 10 && h < 15) return "昼食";
+  if(h >= 15 && h < 17) return "間食";
+  return "夕食";
+}
+
+// ---- 状態 ----
+var S = {
+  tab: "today",
+  date: today(),
+  mealType: defType(),
+  meals: load(KEYS.meals, {}),
+  weights: load(KEYS.weights, {}),
+  goal: (load(KEYS.settings, {}) || {}).goal || null,
+  favorites: load(KEYS.favorites, []),
+  editingFavs: false,
+  editingGoal: false,
+  confirmReset: false,
+  apiKey: load(KEYS.apikey, null),
+  estimating: false, estimateNote: null, estimateError: null, editingKey: false,
+  draftName: "", draftCal: "", draftWeight: null, draftGoal: null, draftKey: ""
+};
+
+function dayMeals(){ return S.meals[S.date] || []; }
+function dayTotal(){ return dayMeals().reduce(function(s,m){ return s+m.calories; }, 0); }
+function isFav(m){ return S.favorites.some(function(f){ return f.name===m.name && f.calories===m.calories; }); }
+function prevWeightEntry(){
+  var es = Object.entries(S.weights).filter(function(e){ return e[0] < S.date; })
+    .sort(function(a,b){ return a[0].localeCompare(b[0]); });
+  return es.length ? es[es.length-1] : null;
+}
+function captureDraft(){
+  var n = document.getElementById("mealName"); if(n) S.draftName = n.value;
+  var c = document.getElementById("mealCal"); if(c) S.draftCal = c.value;
+  var w = document.getElementById("weightIn"); if(w) S.draftWeight = w.value;
+  var g = document.getElementById("goalIn"); if(g) S.draftGoal = g.value;
+  var k = document.getElementById("keyIn"); if(k) S.draftKey = k.value;
+}
+
+// ---- 今日の記録 ----
+function renderToday(){
+  var isT = S.date === today();
+  var total = dayTotal();
+  var over = S.goal != null && total > S.goal;
+  var pct = S.goal ? Math.min(100, Math.round(total / S.goal * 100)) : 0;
+  var h = "";
+
+  // 日付ナビ
+  h += '<div class="row between mb3">'
+    + '<button class="btn-line" onclick="app.moveDate(-1)">← 前日</button>'
+    + '<div class="center"><div class="sm" style="font-weight:500">' + longL(S.date) + '</div>'
+    + (isT ? '' : '<button class="link" style="color:var(--ai)" onclick="app.goToday()">今日に戻る</button>')
+    + '</div>'
+    + '<button class="btn-line" onclick="app.moveDate(1)"' + (isT ? ' disabled style="opacity:.35"' : '') + '>翌日 →</button>'
+    + '</div>';
+
+  // 合計カード
+  h += '<div class="card"><div class="xs sub">この日の摂取カロリー</div>'
+    + '<div class="row" style="align-items:baseline;gap:8px;margin-top:4px">'
+    + '<span class="serif num" style="font-size:34px;font-weight:600">' + fmt(total) + '</span>'
+    + '<span class="sm sub">kcal</span></div>';
+  if(S.goal != null){
+    h += '<div class="mt3"><div class="bar"><div style="width:' + pct + '%;background:' + (over ? 'var(--shu)' : 'var(--ai)') + '"></div></div>'
+      + '<div class="row between xs sub mt1"><span>目標 ' + fmt(S.goal) + ' kcal</span>'
+      + '<span class="num"' + (over ? ' style="color:var(--shu)"' : '') + '>'
+      + (over ? '目標比 +' + fmt(total - S.goal) + ' kcal' : '残り ' + fmt(S.goal - total) + ' kcal')
+      + '</span></div></div>';
+  }
+  if(S.editingGoal){
+    var gv = S.draftGoal != null ? S.draftGoal : (S.goal != null ? S.goal : "");
+    h += '<div class="row mt3" style="flex-wrap:wrap">'
+      + '<input id="goalIn" type="number" inputmode="numeric" placeholder="例：2000" style="width:120px" value="' + esc(gv) + '" onkeydown="if(event.key===\'Enter\')app.saveGoal()">'
+      + '<span class="xs sub">kcal／日</span>'
+      + '<button class="btn" onclick="app.saveGoal()">保存</button>'
+      + '<button class="link" onclick="app.toggleGoalEdit(false)">キャンセル</button></div>';
+  } else {
+    h += '<div class="mt3"><button class="link" onclick="app.toggleGoalEdit(true)">'
+      + (S.goal != null ? '目標を変更（空欄で保存すると解除）' : '1日の目標カロリーを設定する（任意）')
+      + '</button></div>';
+  }
+  h += '</div>';
+
+  // 食事の記録
+  h += '<div class="card"><div class="sm bold mb3">食事の記録</div>';
+  h += '<div class="wrapchips mb2">' + TYPES.map(function(t){
+    return '<button class="pill ' + (S.mealType===t ? 'on' : '') + '" onclick="app.setType(\'' + t + '\')">' + t + '</button>';
+  }).join('') + '</div>';
+
+  // よく食べるもの
+  if(S.favorites.length){
+    h += '<div class="mb3"><div class="row between mb1">'
+      + '<span class="xs sub">よく食べるもの（タップで' + S.mealType + 'に追加）</span>'
+      + '<button class="link" onclick="app.toggleFavEdit()">' + (S.editingFavs ? '完了' : '編集') + '</button></div>'
+      + '<div class="wrapchips">'
+      + S.favorites.map(function(f){
+          return '<button class="chip' + (S.editingFavs ? ' del' : '') + '" onclick="app.favTap(\'' + f.id + '\')">'
+            + esc(f.name) + '・' + fmt(f.calories) + (S.editingFavs ? ' ×' : '') + '</button>';
+        }).join('')
+      + '</div></div>';
+  } else {
+    h += '<p class="xs sub mb3">記録した食事の ☆ を押すと、ここにワンタップ追加のボタンが並びます。</p>';
+  }
+
+  // 入力欄
+  h += '<div class="row">'
+    + '<input id="mealName" placeholder="内容（例：牛丼 並盛）" style="flex:1;min-width:0" value="' + esc(S.draftName || "") + '" onkeydown="if(event.key===\'Enter\')app.addMeal()">'
+    + '<input id="mealCal" type="number" inputmode="numeric" placeholder="kcal" style="width:84px" value="' + esc(S.draftCal || "") + '" onkeydown="if(event.key===\'Enter\')app.addMeal()">'
+    + '<button class="btn" onclick="app.addMeal()">追加</button></div>';
+
+  // AI概算
+  var aiStyle = 'font-size:11px;color:var(--ai)' + (S.estimating ? ';opacity:.5' : '');
+  h += '<div class="row mt2" style="flex-wrap:wrap">'
+    + '<button class="btn-line" style="' + aiStyle + '"' + (S.estimating ? ' disabled' : '') + ' onclick="app.estimate()">'
+    + (S.estimating ? 'AIが概算中…' : 'kcalをAIで概算') + '</button>'
+    + (S.estimateNote ? '<span class="xs sub">' + esc(S.estimateNote) + '</span>' : '')
+    + (S.estimateError ? '<span class="xs" style="color:var(--shu)">' + esc(S.estimateError) + '</span>' : '')
+    + '</div>';
+
+  // 一覧
+  var dm = dayMeals();
+  if(!dm.length){
+    h += '<p class="xs sub" style="margin-top:14px">まだ記録がありません。上の欄から最初の食事を追加してください。</p>';
+  } else {
+    TYPES.forEach(function(t){
+      var items = dm.filter(function(m){ return m.type === t; });
+      if(!items.length) return;
+      var sub = items.reduce(function(s,m){ return s+m.calories; }, 0);
+      h += '<div class="mt3"><div class="row between mb1">'
+        + '<span class="xs" style="color:var(--ai);font-weight:600;letter-spacing:.08em">' + t + '</span>'
+        + '<span class="xs sub num">' + fmt(sub) + ' kcal</span></div>';
+      items.forEach(function(m){
+        h += '<div class="list-item"><span class="sm">' + esc(m.name) + '</span>'
+          + '<span class="row" style="gap:10px">'
+          + '<span class="sm num">' + fmt(m.calories) + ' kcal</span>'
+          + '<button class="iconbtn" style="color:' + (isFav(m) ? 'var(--ai)' : 'var(--sub)') + '" aria-label="よく食べるものに登録" onclick="app.toggleFav(\'' + m.id + '\')">' + (isFav(m) ? '★' : '☆') + '</button>'
+          + '<button class="iconbtn" aria-label="削除" onclick="app.delMeal(\'' + m.id + '\')">×</button>'
+          + '</span></div>';
+      });
+      h += '</div>';
+    });
+  }
+  h += '</div>';
+
+  // 体重
+  var w = S.weights[S.date];
+  var pv = prevWeightEntry();
+  var wv = S.draftWeight != null ? S.draftWeight : (w != null ? w : "");
+  h += '<div class="card"><div class="sm bold mb3">体重</div>'
+    + '<div class="row">'
+    + '<input id="weightIn" type="number" inputmode="decimal" step="0.1" placeholder="例：62.5" style="width:120px" value="' + esc(wv) + '" onkeydown="if(event.key===\'Enter\')app.saveWeight()">'
+    + '<span class="sm sub">kg</span>'
+    + '<button class="btn" onclick="app.saveWeight()">保存</button></div>';
+  if(w != null && pv){
+    var diff = Math.round((w - pv[1]) * 10) / 10;
+    var dtxt = diff === 0 ? '変化なし' : ((diff > 0 ? '+' : '') + diff + ' kg');
+    h += '<p class="xs sub num mt2">前回の記録（' + shortL(pv[0]) + '：' + pv[1] + ' kg）から ' + dtxt + '</p>';
+  }
+  if(w != null){
+    h += '<p class="xs sub mt2">空欄のまま保存すると、この日の体重記録を削除します。</p>';
+  }
+  h += '</div>';
+  return h;
+}
+
+// ---- 履歴・グラフ ----
+function calorieHistory(){
+  var days = []; var d = today();
+  for(var i = 0; i < 30; i++){ days.unshift(d); d = shift(d, -1); }
+  return days.map(function(ds){
+    return { ds: ds, label: shortL(ds), calories: (S.meals[ds] || []).reduce(function(s,m){ return s+m.calories; }, 0) };
+  });
+}
+function weightHistory(){
+  return Object.entries(S.weights).sort(function(a,b){ return a[0].localeCompare(b[0]); })
+    .map(function(e){ return { ds: e[0], label: shortL(e[0]), weight: e[1] }; });
+}
+
+function barSVG(data){
+  var W=520, H=190, L=46, R=6, T=10, B=22;
+  var iw = W-L-R, ih = H-T-B;
+  var rawMax = Math.max.apply(null, [S.goal || 0, 500].concat(data.map(function(d){ return d.calories; })));
+  var max = Math.ceil(rawMax / 500) * 500;
+  var bw = iw / data.length;
+  var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" aria-label="摂取カロリーの棒グラフ">';
+  for(var i = 0; i <= 4; i++){
+    var v = max * i / 4, y = T + ih - ih * i / 4;
+    s += '<line x1="' + L + '" y1="' + y + '" x2="' + (W-R) + '" y2="' + y + '" stroke="var(--line)" stroke-dasharray="3 3"/>'
+      + '<text x="' + (L-6) + '" y="' + (y+3) + '" font-size="9" fill="var(--sub)" text-anchor="end">' + fmt(v) + '</text>';
+  }
+  data.forEach(function(d, i){
+    var x = L + i*bw + bw*0.18, w = bw*0.64;
+    var bh = max ? ih * d.calories / max : 0;
+    var y = T + ih - bh;
+    s += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + Math.max(bh,0).toFixed(1) + '" rx="2" fill="var(--ai)"><title>' + d.label + '：' + fmt(d.calories) + ' kcal</title></rect>';
+    if(i % 5 === 0){
+      s += '<text x="' + (L + i*bw + bw/2).toFixed(1) + '" y="' + (H-6) + '" font-size="9" fill="var(--sub)" text-anchor="middle">' + d.label + '</text>';
+    }
+  });
+  if(S.goal != null && S.goal <= max){
+    var gy = T + ih - ih * S.goal / max;
+    s += '<line x1="' + L + '" y1="' + gy.toFixed(1) + '" x2="' + (W-R) + '" y2="' + gy.toFixed(1) + '" stroke="var(--shu)" stroke-dasharray="4 4"/>';
+  }
+  return s + '</svg>';
+}
+
+function lineSVG(data){
+  var W=520, H=190, L=40, R=10, T=12, B=22;
+  var iw = W-L-R, ih = H-T-B;
+  var ws = data.map(function(d){ return d.weight; });
+  var lo = Math.floor(Math.min.apply(null, ws) - 1);
+  var hi = Math.ceil(Math.max.apply(null, ws) + 1);
+  if(hi - lo < 2) hi = lo + 2;
+  function X(i){ return data.length === 1 ? L + iw/2 : L + iw * i / (data.length - 1); }
+  function Y(v){ return T + ih - ih * (v - lo) / (hi - lo); }
+  var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" aria-label="体重の推移グラフ">';
+  for(var i = 0; i <= 4; i++){
+    var v = lo + (hi - lo) * i / 4, y = Y(v);
+    s += '<line x1="' + L + '" y1="' + y.toFixed(1) + '" x2="' + (W-R) + '" y2="' + y.toFixed(1) + '" stroke="var(--line)" stroke-dasharray="3 3"/>'
+      + '<text x="' + (L-6) + '" y="' + (y+3).toFixed(1) + '" font-size="9" fill="var(--sub)" text-anchor="end">' + (Math.round(v*10)/10) + '</text>';
+  }
+  if(data.length > 1){
+    var pts = data.map(function(d, i){ return X(i).toFixed(1) + ',' + Y(d.weight).toFixed(1); }).join(' ');
+    s += '<polyline points="' + pts + '" fill="none" stroke="var(--gunmetal)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
+  }
+  data.forEach(function(d, i){
+    s += '<circle cx="' + X(i).toFixed(1) + '" cy="' + Y(d.weight).toFixed(1) + '" r="3" fill="var(--gunmetal)"><title>' + d.label + '：' + d.weight + ' kg</title></circle>';
+  });
+  var labIdx = data.length <= 4
+    ? data.map(function(_, i){ return i; })
+    : [0, Math.floor((data.length-1)/2), data.length-1];
+  Array.from(new Set(labIdx)).forEach(function(i){
+    s += '<text x="' + X(i).toFixed(1) + '" y="' + (H-6) + '" font-size="9" fill="var(--sub)" text-anchor="middle">' + data[i].label + '</text>';
+  });
+  return s + '</svg>';
+}
+
+function renderHistory(){
+  var ch = calorieHistory(), wh = weightHistory();
+  var rec7 = ch.slice(-7).filter(function(d){ return d.calories > 0; });
+  var avg7 = rec7.length ? Math.round(rec7.reduce(function(s,d){ return s+d.calories; }, 0) / rec7.length) : null;
+  var lw = wh[wh.length-1] || null, pw = wh[wh.length-2] || null;
+  var wd = (lw && pw) ? Math.round((lw.weight - pw.weight) * 10) / 10 : null;
+  var h = "";
+
+  h += '<div class="stats">'
+    + '<div class="card"><div class="xs sub">直近7日の平均</div><div class="serif num mt1" style="font-size:18px;font-weight:600">' + (avg7 != null ? fmt(avg7) : '—') + '</div><div class="xs sub">kcal／記録日</div></div>'
+    + '<div class="card"><div class="xs sub">最新の体重</div><div class="serif num mt1" style="font-size:18px;font-weight:600">' + (lw ? lw.weight : '—') + '</div><div class="xs sub">' + (lw ? 'kg（' + lw.label + '）' : 'kg') + '</div></div>'
+    + '<div class="card"><div class="xs sub">前回からの変化</div><div class="serif num mt1" style="font-size:18px;font-weight:600">' + (wd != null ? ((wd > 0 ? '+' : '') + wd) : '—') + '</div><div class="xs sub">kg</div></div>'
+    + '</div>';
+
+  h += '<div class="card"><div class="sm bold mb2">摂取カロリー（直近30日）</div>' + barSVG(ch)
+    + (S.goal != null ? '<p class="xs sub mt1">破線は目標（' + fmt(S.goal) + ' kcal）</p>' : '')
+    + '</div>';
+
+  h += '<div class="card"><div class="sm bold mb2">体重の推移</div>'
+    + (wh.length ? lineSVG(wh.slice(-60)) : '<p class="xs sub">まだ体重の記録がありません。「今日の記録」タブで体重を入力すると、ここに推移が表示されます。</p>')
+    + '</div>';
+
+  if(wh.length){
+    h += '<div class="card"><div class="sm bold mb1">体重の記録（新しい順・直近10件）</div>';
+    wh.slice().reverse().slice(0, 10).forEach(function(w){
+      h += '<div class="list-item"><span class="sm sub">' + midL(w.ds) + '</span>'
+        + '<span class="row" style="gap:10px"><span class="sm num">' + w.weight + ' kg</span>'
+        + '<button class="iconbtn" aria-label="削除" onclick="app.delWeight(\'' + w.ds + '\')">×</button></span></div>';
+    });
+    h += '</div>';
+  }
+
+  // AI設定
+  h += '<div class="card"><div class="sm bold mb2">AI設定（カロリー概算）</div>'
+    + '<p class="xs sub mb2">「今日の記録」で食事名からkcalをAIで概算する機能に使います。Anthropic APIキー（console.anthropic.com で発行）が必要で、利用ごとにごく少額のAPI料金がかかります。キーはこの端末のブラウザ内にのみ保存され、書き出しJSONには含まれません。共用の端末では保存しないでください。</p>';
+  if(S.editingKey){
+    h += '<div class="row" style="flex-wrap:wrap">'
+      + '<input id="keyIn" type="password" placeholder="sk-ant-..." style="flex:1;min-width:180px;font-size:13px" value="' + esc(S.draftKey || "") + '" onkeydown="if(event.key===\'Enter\')app.saveKey()">'
+      + '<button class="btn" onclick="app.saveKey()">保存</button>'
+      + '<button class="link" onclick="app.toggleKeyEdit(false)">キャンセル</button></div>';
+  } else if(S.apiKey){
+    h += '<div class="row" style="flex-wrap:wrap"><span class="sm num">保存済み（…' + esc(S.apiKey.slice(-4)) + '）</span>'
+      + '<button class="btn-line" onclick="app.toggleKeyEdit(true)">変更</button>'
+      + '<button class="link" onclick="app.deleteKey()">削除</button></div>';
+  } else {
+    h += '<button class="btn-line" onclick="app.toggleKeyEdit(true)">APIキーを保存する</button>';
+  }
+  h += '</div>';
+
+  // データの管理
+  h += '<div class="card"><div class="sm bold mb2">データの管理</div>'
+    + '<p class="xs sub mb2">記録はこの端末のブラウザ内（localStorage）に保存されます。バックアップや別端末への移行には、書き出しと読み込みを使ってください。読み込むと現在の記録は置き換えられます。</p>'
+    + '<div class="row" style="flex-wrap:wrap">'
+    + '<button class="btn-line" onclick="app.exportData()">JSONを書き出す</button>'
+    + '<label class="btn-line" style="display:inline-block">ファイルから読み込む<input type="file" accept=".json,application/json" style="display:none" onchange="app.importFile(event)"></label>'
+    + '</div>'
+    + '<div class="mt2"><textarea id="pasteIn" rows="3" placeholder="書き出したJSON（Claude版アプリのものも可）をここに貼り付け"></textarea>'
+    + '<div class="mt1"><button class="btn-line" onclick="app.importPaste()">貼り付けた内容を読み込む</button></div></div>'
+    + '</div>';
+
+  // 全削除
+  h += '<div class="center" style="padding:8px 0 16px">';
+  if(S.confirmReset){
+    h += '<span class="xs" style="color:var(--shu)">すべての記録を削除します。元に戻せません。</span>'
+      + '<button class="xs" style="background:var(--shu);color:#fff;border:0;border-radius:8px;padding:4px 12px;margin:0 8px" onclick="app.resetAll()">削除する</button>'
+      + '<button class="link" onclick="app.toggleReset(false)">キャンセル</button>';
+  } else {
+    h += '<button class="link" onclick="app.toggleReset(true)">すべてのデータを削除</button>';
+  }
+  h += '</div>';
+  return h;
+}
+
+// ---- 描画 ----
+function render(){
+  document.getElementById("tabToday").className = S.tab === "today" ? "on" : "";
+  document.getElementById("tabHistory").className = S.tab === "history" ? "on" : "";
+  document.getElementById("view").innerHTML = S.tab === "today" ? renderToday() : renderHistory();
+}
+
+// ---- 読み込み（置き換え） ----
+function applyImport(d){
+  if(!d || typeof d !== "object") throw new Error("invalid");
+  if(!d.meals && !d.weights && !d.favorites) throw new Error("invalid");
+  S.meals = (d.meals && typeof d.meals === "object") ? d.meals : {};
+  S.weights = (d.weights && typeof d.weights === "object") ? d.weights : {};
+  S.favorites = Array.isArray(d.favorites) ? d.favorites : [];
+  S.goal = (d.settings && typeof d.settings.goal === "number") ? d.settings.goal : null;
+  save(KEYS.meals, S.meals);
+  save(KEYS.weights, S.weights);
+  save(KEYS.favorites, S.favorites);
+  save(KEYS.settings, { goal: S.goal });
+}
+
+// ---- 操作 ----
+window.app = {
+  setTab: function(t){ captureDraft(); S.tab = t; render(); },
+  moveDate: function(n){
+    captureDraft();
+    var nd = shift(S.date, n);
+    if(nd > today()) return;
+    S.date = nd; S.draftWeight = null;
+    render();
+  },
+  goToday: function(){ captureDraft(); S.date = today(); S.draftWeight = null; render(); },
+  setType: function(t){ captureDraft(); S.mealType = t; render(); },
+
+  addMeal: function(){
+    captureDraft();
+    var name = (S.draftName || "").trim();
+    var cal = parseFloat(S.draftCal);
+    if(!name || isNaN(cal) || cal < 0) return;
+    var e = { id: uid(), name: name, calories: Math.round(cal), type: S.mealType };
+    S.meals[S.date] = dayMeals().concat([e]);
+    save(KEYS.meals, S.meals);
+    S.draftName = ""; S.draftCal = "";
+    S.estimateNote = null; S.estimateError = null;
+    render();
+  },
+  delMeal: function(id){
+    captureDraft();
+    var rest = dayMeals().filter(function(m){ return m.id !== id; });
+    if(rest.length) S.meals[S.date] = rest; else delete S.meals[S.date];
+    save(KEYS.meals, S.meals);
+    render();
+  },
+
+  toggleFav: function(id){
+    captureDraft();
+    var m = dayMeals().find(function(x){ return x.id === id; });
+    if(!m) return;
+    if(isFav(m)){
+      S.favorites = S.favorites.filter(function(f){ return !(f.name === m.name && f.calories === m.calories); });
+    } else {
+      S.favorites.push({ id: uid(), name: m.name, calories: m.calories });
+    }
+    save(KEYS.favorites, S.favorites);
+    render();
+  },
+  toggleFavEdit: function(){ captureDraft(); S.editingFavs = !S.editingFavs; render(); },
+  favTap: function(id){
+    captureDraft();
+    var f = S.favorites.find(function(x){ return x.id === id; });
+    if(!f) return;
+    if(S.editingFavs){
+      S.favorites = S.favorites.filter(function(x){ return x.id !== id; });
+      if(!S.favorites.length) S.editingFavs = false;
+      save(KEYS.favorites, S.favorites);
+    } else {
+      var e = { id: uid(), name: f.name, calories: f.calories, type: S.mealType };
+      S.meals[S.date] = dayMeals().concat([e]);
+      save(KEYS.meals, S.meals);
+    }
+    render();
+  },
+
+  saveWeight: function(){
+    captureDraft();
+    var raw = (S.draftWeight == null ? "" : String(S.draftWeight)).trim();
+    if(raw === ""){
+      delete S.weights[S.date];
+    } else {
+      var w = parseFloat(raw);
+      if(isNaN(w) || w <= 0) return;
+      S.weights[S.date] = Math.round(w * 10) / 10;
+    }
+    save(KEYS.weights, S.weights);
+    S.draftWeight = null;
+    render();
+  },
+  delWeight: function(ds){
+    captureDraft();
+    delete S.weights[ds];
+    save(KEYS.weights, S.weights);
+    if(ds === S.date) S.draftWeight = null;
+    render();
+  },
+
+  toggleGoalEdit: function(on){
+    captureDraft();
+    S.editingGoal = on;
+    S.draftGoal = on ? (S.goal != null ? String(S.goal) : "") : null;
+    render();
+  },
+  saveGoal: function(){
+    captureDraft();
+    var g = parseInt(S.draftGoal, 10);
+    S.goal = (!isNaN(g) && g > 0) ? g : null;
+    save(KEYS.settings, { goal: S.goal });
+    S.editingGoal = false; S.draftGoal = null;
+    render();
+  },
+
+  estimate: function(){
+    captureDraft();
+    var name = (S.draftName || "").trim();
+    if(S.estimating) return;
+    if(!name){ S.estimateError = "先に食事の内容を入力してください。"; S.estimateNote = null; render(); return; }
+    if(!S.apiKey){ S.estimateError = "履歴タブの「AI設定」でAPIキーを保存してください。"; S.estimateNote = null; render(); return; }
+    S.estimating = true; S.estimateNote = null; S.estimateError = null;
+    render();
+    var prompt = "次の食事1回分のおおよそのエネルギー(kcal)を概算してください。\n\n"
+      + "食事:「" + name + "」\n\n"
+      + "前提: 日本で一般的な一人前の量。チェーン店等の商品名なら公称値の記憶に基づく。「大盛」「半分」などの量の指定があれば反映。判断に迷う場合は標準的な量で見積もる。\n\n"
+      + '回答は次のJSONのみを返すこと。前置き・コードブロック・補足は一切禁止:\n{"kcal": 整数, "note": "想定量や根拠(全角25字以内)"}';
+    fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": S.apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({ model: AI_MODEL, max_tokens: 300, messages: [{ role: "user", content: prompt }] })
+    })
+    .then(function(res){ return res.json(); })
+    .then(function(data){
+      if(data.error){ throw new Error(data.error.type || "api"); }
+      var text = (data.content || []).filter(function(b){ return b.type === "text"; })
+        .map(function(b){ return b.text; }).join("\n");
+      var clean = text.replace(/```json|```/g, "").trim();
+      var m = clean.match(/\{[\s\S]*\}/);
+      var parsed = JSON.parse(m ? m[0] : clean);
+      var kcal = Math.round(Number(parsed.kcal));
+      if(!isFinite(kcal) || kcal < 0 || kcal > 20000) throw new Error("range");
+      S.draftCal = String(kcal);
+      S.estimateNote = "AI概算：約" + fmt(kcal) + " kcal" + (parsed.note ? "（" + parsed.note + "）" : "");
+    })
+    .catch(function(e){
+      S.estimateError = (e && e.message === "authentication_error")
+        ? "APIキーが無効です。「AI設定」で確認してください。"
+        : "概算に失敗しました。通信・APIキー・残高を確認してください。";
+    })
+    .then(function(){ S.estimating = false; render(); });
+  },
+
+  toggleKeyEdit: function(on){ captureDraft(); S.editingKey = on; S.draftKey = ""; render(); },
+  saveKey: function(){
+    captureDraft();
+    var k = (S.draftKey || "").trim();
+    if(!k){ alert("APIキーを入力してください。"); return; }
+    S.apiKey = k;
+    save(KEYS.apikey, k);
+    S.editingKey = false; S.draftKey = "";
+    render();
+  },
+  deleteKey: function(){
+    if(!confirm("保存したAPIキーを削除しますか？")) return;
+    S.apiKey = null;
+    try { localStorage.removeItem(KEYS.apikey); } catch(e){}
+    S.editingKey = false;
+    render();
+  },
+
+  exportData: function(){
+    var payload = {
+      app: "meal-weight-note", version: 1,
+      exportedAt: new Date().toISOString(),
+      meals: S.meals, weights: S.weights, favorites: S.favorites,
+      settings: { goal: S.goal }
+    };
+    var blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "食事体重ノート_" + today().replace(/-/g, "") + ".json";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); }, 1000);
+  },
+  importFile: function(ev){
+    var file = ev.target.files && ev.target.files[0];
+    ev.target.value = "";
+    if(!file) return;
+    if(!confirm("現在の記録を、選んだファイルの内容で置き換えます。よろしいですか？")) return;
+    var r = new FileReader();
+    r.onload = function(){
+      try { applyImport(JSON.parse(r.result)); render(); alert("読み込みました。"); }
+      catch(e){ alert("読み込めませんでした。書き出したJSONファイルを選んでください。"); }
+    };
+    r.readAsText(file);
+  },
+  importPaste: function(){
+    var t = document.getElementById("pasteIn");
+    if(!t || !t.value.trim()){ alert("JSONを貼り付けてください。"); return; }
+    if(!confirm("現在の記録を、貼り付けた内容で置き換えます。よろしいですか？")) return;
+    try { applyImport(JSON.parse(t.value)); render(); alert("読み込みました。"); }
+    catch(e){ alert("読み込めませんでした。書き出したJSONをそのまま貼り付けてください。"); }
+  },
+
+  toggleReset: function(v){ captureDraft(); S.confirmReset = v; render(); },
+  resetAll: function(){
+    S.meals = {}; S.weights = {}; S.favorites = []; S.goal = null; S.apiKey = null;
+    S.confirmReset = false; S.editingFavs = false; S.editingGoal = false; S.editingKey = false;
+    S.estimateNote = null; S.estimateError = null;
+    S.draftName = ""; S.draftCal = ""; S.draftWeight = null; S.draftGoal = null;
+    Object.keys(KEYS).forEach(function(k){
+      try { localStorage.removeItem(KEYS[k]); } catch(e){}
+    });
+    render();
+  }
+};
+
+render();
+</script>
+</body>
+</html>
